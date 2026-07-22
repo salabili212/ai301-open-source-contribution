@@ -1,4 +1,4 @@
-# ai301-open-source-contribution
+
 # AI301 Phase I – Issue Selection
 
 **Project:** Apache Airflow
