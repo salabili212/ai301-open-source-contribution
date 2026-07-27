@@ -1,12 +1,13 @@
 # AI301 Phase I – Issue Selection
 
 ## Project
+
 **GitVerse (Next.js)**
 **Repository:** https://github.com/nisshchayarathi/gitverse-nextjs
 **My Fork:** https://github.com/salabili212/gitverse-nextjs
 **Selected Issue:** #530 – UI: DashboardLayout mobile sidebar missing Escape key to close
 **Issue Link:** https://github.com/nisshchayarathi/gitverse-nextjs/issues/530
-
+**My Comment on Issue:** https://github.com/nisshchayarathi/gitverse-nextjs/issues/530#issuecomment-5087508292
 
 ## Problem Summary
 The DashboardLayout component's mobile sidebar can be dismissed by clicking
