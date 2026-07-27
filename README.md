@@ -1,50 +1,76 @@
-# AI301 Phase I – Issue Selection
+## Phase II — Reproduce and Plan
 
-## Project
+### Environment Setup
+Hit a `Server Error: Missing required environment variables: INTERNAL_WORKER_SECRET`
+on first run. The app validates `DATABASE_URL`, `NEXTAUTH_URL`, `GEMINI_API_KEY`,
+and `INTERNAL_WORKER_SECRET` on boot (`lib/env.ts`). Bypassed validation for local
+UI-only testing using the project's built-in `CI=true` skip flag:
+```powershell
+$env:CI="true"; npm run dev
+```
+This let the dev server boot without a live database. Attempting to sign up beyond
+this point failed with a backend error, confirming the app needs a real database
+connection to fully render authenticated pages. Standing up a full Postgres +
+auth flow was out of scope for this fix, so reproduction was done at the code
+level instead.
 
-**GitVerse (Next.js)**
-**Repository:** https://github.com/nisshchayarathi/gitverse-nextjs
-**My Fork:** https://github.com/salabili212/gitverse-nextjs
-**Selected Issue:** #530 – UI: DashboardLayout mobile sidebar missing Escape key to close
-**Issue Link:** https://github.com/nisshchayarathi/gitverse-nextjs/issues/530
-**My Comment on Issue:** https://github.com/nisshchayarathi/gitverse-nextjs/issues/530#issuecomment-5087508292
+### Reproducing the Bug (Code-Level)
+Reviewed `src/components/layout/DashboardLayout.tsx` (lines 117–156). Confirmed
+the mobile sidebar's backdrop overlay only had `onClick={() => setMobileMenuOpen(false)}`
+— no `onKeyDown`, `keydown`, or `Escape` handling existed anywhere in the file
+prior to the fix (verified via `Select-String -Pattern "keydown|Escape|onKeyDown"`
+— zero matches).
 
-## Problem Summary
-The DashboardLayout component's mobile sidebar can be dismissed by clicking
-the backdrop overlay, but pressing the Escape key does nothing. This breaks
-a standard accessibility expectation — users (especially keyboard users)
-expect Escape to close overlays and dialogs. Fixing this brings the sidebar
-in line with common UI conventions and improves keyboard accessibility.
+### Plan
+1. Import `useEffect` alongside the existing `useState` import.
+2. Add a `useEffect` scoped to `mobileMenuOpen` state: attach a `document`-level
+   `keydown` listener only while the sidebar is open, check for `Escape`, and call
+   the existing `setMobileMenuOpen(false)`.
+3. Clean up the listener when the sidebar closes or the component unmounts.
+4. Confirm only `DashboardLayout.tsx` is modified (`git status`).
+5. Run `npx tsc --noEmit`, `npm run lint`, `npm run build` to confirm no new
+   errors are introduced.
+6. Push and open a pull request referencing #530.
 
-## Why I Chose This Issue
-**Skill match:** This issue uses React state management (`setMobileMenuOpen`)
-and DOM event handling in a Next.js/TypeScript codebase — technologies I'm
-comfortable with and want to get more practice using in a real, unfamiliar
-repo rather than a personal project.
+## Phase III — Build
 
-**Learning goal:** I want to practice reading someone else's component
-structure, understanding existing state patterns before changing them, and
-writing an accessible keyboard interaction correctly (attaching to the right
-element, cleaning up listeners, avoiding conflicts with other key handlers).
+### Implementation
+```tsx
+useEffect(() => {
+  if (!mobileMenuOpen) return;
 
-**Understanding:** I've read `src/components/layout/DashboardLayout.tsx`
-(lines 117–156). The sidebar currently closes only via `onClick` on the
-backdrop overlay. My plan is to add an `onKeyDown` (or `keydown` effect)
-that checks for the `Escape` key while the sidebar is open, and calls
-`setMobileMenuOpen(false)`, matching the existing close pattern.
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      setMobileMenuOpen(false);
+    }
+  };
 
-## Initial Plan
-1. Fork and clone the repo, install dependencies, and run it locally.
-2. Reproduce the bug: open the mobile sidebar, press Escape, confirm it does
-   not close.
-3. Read the surrounding component code to understand how the overlay and
-   state are wired together.
-4. Implement the Escape key handler, following the existing code style and
-   the pattern in the issue's suggested fix.
-5. Manually test: sidebar opens/closes via backdrop click (no regression),
-   and now also closes via Escape.
-6. Push the branch, open a pull request referencing #530, and respond to
-   any maintainer feedback.
+  document.addEventListener("keydown", handleKeyDown);
+  return () => {
+    document.removeEventListener("keydown", handleKeyDown);
+  };
+}, [mobileMenuOpen]);
+```
 
-## Files Likely Involved
-- `src/components/layout/DashboardLayout.tsx` (lines 117–156)
+### Verification
+- `git status` confirmed only `DashboardLayout.tsx` was modified.
+- `npx tsc --noEmit`, `npm run lint`, and `npm run build` all showed only
+  **pre-existing, unrelated** errors (`CodeDependencyGraph.tsx`,
+  `analysisJobService.ts`) — none introduced by this change.
+- `npm run format` was run but **not committed**, since it reformatted the
+  entire repository (hundreds of unrelated files) rather than just the
+  changed file — committing that would have violated the "no unrelated
+  formatting changes" guideline.
+
+## Phase IV — Submit and Iterate
+
+### Pull Request
+Opened: [nisshchayarathi/gitverse-nextjs#2656](https://github.com/nisshchayarathi/gitverse-nextjs/pull/2656)
+
+Branch: `fix/sidebar-escape-key` (pushed to my fork, PR opened against
+upstream `main`)
+
+**Status:** Open, awaiting maintainer review.
+
+Will update this section with maintainer feedback and any follow-up
+revisions as the review progresses.
