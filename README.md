@@ -2,75 +2,78 @@
 
 ### Environment Setup
 Hit a `Server Error: Missing required environment variables: INTERNAL_WORKER_SECRET`
-on first run. The app validates `DATABASE_URL`, `NEXTAUTH_URL`, `GEMINI_API_KEY`,
-and `INTERNAL_WORKER_SECRET` on boot (`lib/env.ts`). Bypassed validation for local
-UI-only testing using the project's built-in `CI=true` skip flag:
+on first run. Inspected `lib/env.ts` and found the app validates `DATABASE_URL`,
+`NEXTAUTH_URL`, `GEMINI_API_KEY`, and `INTERNAL_WORKER_SECRET` on boot, and
+requires either `TOKEN_ENCRYPTION_KEY` or `KMS_KEY_ID`.
+
+**Challenge:** No local database or auth backend was available, and standing
+one up was out of scope for a small UI fix.
+
+**Resolution:** The project has a built-in validation skip for CI environments.
+Used that flag to boot the dev server without a live database:
 ```powershell
 $env:CI="true"; npm run dev
 ```
-This let the dev server boot without a live database. Attempting to sign up beyond
-this point failed with a backend error, confirming the app needs a real database
-connection to fully render authenticated pages. Standing up a full Postgres +
-auth flow was out of scope for this fix, so reproduction was done at the code
-level instead.
+This got the app running on `localhost:3001`. Full authenticated pages (like
+`/Dashboard`) still require a real database connection to render — confirmed
+this when a signup attempt returned a backend error instead of a valid
+response. Reproduction of the actual bug was therefore done at the code level
+(see below), since the component and its bug are fully visible in the source
+without needing a live session.
 
-### Reproducing the Bug (Code-Level)
-Reviewed `src/components/layout/DashboardLayout.tsx` (lines 117–156). Confirmed
-the mobile sidebar's backdrop overlay only had `onClick={() => setMobileMenuOpen(false)}`
-— no `onKeyDown`, `keydown`, or `Escape` handling existed anywhere in the file
-prior to the fix (verified via `Select-String -Pattern "keydown|Escape|onKeyDown"`
-— zero matches).
+**Branch:** `fix/sidebar-escape-key` (pushed to my fork). Note: this doesn't
+follow the `fix-issue-NNN` numbering convention exactly — for future issues
+I'll use `fix-issue-530`-style naming from the start.
 
-### Plan
-1. Import `useEffect` alongside the existing `useState` import.
-2. Add a `useEffect` scoped to `mobileMenuOpen` state: attach a `document`-level
-   `keydown` listener only while the sidebar is open, check for `Escape`, and call
-   the existing `setMobileMenuOpen(false)`.
-3. Clean up the listener when the sidebar closes or the component unmounts.
-4. Confirm only `DashboardLayout.tsx` is modified (`git status`).
-5. Run `npx tsc --noEmit`, `npm run lint`, `npm run build` to confirm no new
-   errors are introduced.
-6. Push and open a pull request referencing #530.
-
-## Phase III — Build
-
-### Implementation
-```tsx
-useEffect(() => {
-  if (!mobileMenuOpen) return;
-
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      setMobileMenuOpen(false);
-    }
-  };
-
-  document.addEventListener("keydown", handleKeyDown);
-  return () => {
-    document.removeEventListener("keydown", handleKeyDown);
-  };
-}, [mobileMenuOpen]);
+### Reproduction Steps
+1. Clone the fork and run `npm install`.
+2. Set `CI=true` and run `npm run dev` to bypass env validation.
+3. Open `src/components/layout/DashboardLayout.tsx` and locate the mobile
+   sidebar block (originally lines 117–156).
+4. Search the file for any keyboard event handling:
+```powershell
+   Select-String -Path src\components\layout\DashboardLayout.tsx -Pattern "keydown|Escape|onKeyDown"
 ```
+5. Observe the result: zero matches. The only dismiss handler present is
+   `onClick={() => setMobileMenuOpen(false)}` on the backdrop `<div>`.
 
-### Verification
-- `git status` confirmed only `DashboardLayout.tsx` was modified.
-- `npx tsc --noEmit`, `npm run lint`, and `npm run build` all showed only
-  **pre-existing, unrelated** errors (`CodeDependencyGraph.tsx`,
-  `analysisJobService.ts`) — none introduced by this change.
-- `npm run format` was run but **not committed**, since it reformatted the
-  entire repository (hundreds of unrelated files) rather than just the
-  changed file — committing that would have violated the "no unrelated
-  formatting changes" guideline.
+**Expected behavior:** Pressing Escape while the mobile sidebar is open
+should close it, consistent with standard behavior for dismissible
+overlays/dialogs.
 
-## Phase IV — Submit and Iterate
+**Actual behavior:** Pressing Escape does nothing. The sidebar only closes
+via a mouse click on the backdrop overlay; there is no keyboard-triggered
+close path at all.
 
-### Pull Request
-Opened: [nisshchayarathi/gitverse-nextjs#2656](https://github.com/nisshchayarathi/gitverse-nextjs/pull/2656)
+### Plan (UMPIRE)
 
-Branch: `fix/sidebar-escape-key` (pushed to my fork, PR opened against
-upstream `main`)
+**Understand:** The mobile sidebar (`DashboardLayout.tsx`) opens as an
+overlay controlled by `mobileMenuOpen` state. It currently closes only
+through a single `onClick` handler on the backdrop `<div>`. There is no
+keyboard accessibility path to dismiss it.
 
-**Status:** Open, awaiting maintainer review.
+**Match:** This is the same problem class as any dismissible overlay/modal
+lacking a keyboard escape hatch — a standard, well-known UI pattern (e.g.
+`react-aria`, native `<dialog>` behavior) is to close on `Escape` in addition
+to backdrop clicks.
 
-Will update this section with maintainer feedback and any follow-up
-revisions as the review progresses.
+**Plan:**
+1. Import `useEffect` alongside the existing `useState` import.
+2. Add a `useEffect` scoped to `mobileMenuOpen`: while true, attach a
+   `document`-level `keydown` listener that checks for `event.key === "Escape"`
+   and calls the existing `setMobileMenuOpen(false)`.
+3. Return a cleanup function removing the listener, so it doesn't leak when
+   the sidebar closes or the component unmounts.
+4. Confirm no other files are touched (`git status`).
+5. Run `npx tsc --noEmit`, `npm run lint`, `npm run build` to catch any
+   regressions.
+
+**Review:** Confirm the fix matches the existing code style (same
+`setMobileMenuOpen(false)` call already used by the backdrop), doesn't
+introduce new dependencies, and the listener is properly scoped so it's
+never active when the sidebar is closed.
+
+**Evaluate:** Root cause is the *absence* of any keyboard handler — not a
+bug in existing logic, but a missing feature. The fix is minimal and
+additive: no existing behavior (backdrop click, desktop layout, other
+key handlers) is touched or put at risk.
