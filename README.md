@@ -31,29 +31,19 @@ It also gave me the opportunity to read an unfamiliar codebase, understand how t
 
 ### Environment Setup
 
-Hit a `Server Error: Missing required environment variables: INTERNAL_WORKER_SECRET`
-on first run. Inspected `lib/env.ts` and found the app validates `DATABASE_URL`,
-`NEXTAUTH_URL`, `GEMINI_API_KEY`, and `INTERNAL_WORKER_SECRET` on boot, and
-requires either `TOKEN_ENCRYPTION_KEY` or `KMS_KEY_ID`.
+Hit a `Server Error: Missing required environment variables: INTERNAL_WORKER_SECRET` on first run. Inspected `lib/env.ts` and found the app validates `DATABASE_URL`, `NEXTAUTH_URL`, `GEMINI_API_KEY`, and `INTERNAL_WORKER_SECRET` on boot, and requires either `TOKEN_ENCRYPTION_KEY` or `KMS_KEY_ID`.
 
-**Challenge:** No local database or auth backend was available, and standing
-one up was out of scope for a small UI fix.
+**Challenge:** No local database or auth backend was available, and standing one up was out of scope for a small UI fix.
 
-**Resolution:** The project has a built-in validation skip for CI environments.
-Used that flag to boot the dev server without a live database:
+**Resolution:** The project has a built-in validation skip for CI environments. Used that flag to boot the dev server without a live database:
+
 ```powershell
 $env:CI="true"; npm run dev
 ```
-This got the app running on `localhost:3001`. Full authenticated pages (like
-`/Dashboard`) still require a real database connection to render — confirmed
-this when a signup attempt returned a backend error instead of a valid
-response. Reproduction of the actual bug was therefore done at the code level
-(see below), since the component and its bug are fully visible in the source
-without needing a live session.
 
-**Branch:** `fix/sidebar-escape-key` (pushed to my fork). Note: this doesn't
-follow the `fix-issue-NNN` numbering convention exactly — for future issues
-I'll use `fix-issue-530`-style naming from the start.
+This got the app running on `localhost:3001`. Full authenticated pages (like `/Dashboard`) still require a real database connection to render — confirmed this when a signup attempt returned a backend error instead of a valid response. Reproduction of the actual bug was therefore done at the code level (see below), since the component and its bug are fully visible in the source without needing a live session.
+
+**Branch:** `fix/sidebar-escape-key` (pushed to my fork). Note: this doesn't follow the `fix-issue-NNN` numbering convention exactly — for future issues I'll use `fix-issue-530`-style naming from the start.
 
 ### Reproduction Steps
 
@@ -61,9 +51,11 @@ I'll use `fix-issue-530`-style naming from the start.
 2. Set `CI=true` and run `npm run dev` to bypass env validation.
 3. Open `src/components/layout/DashboardLayout.tsx` and locate the mobile sidebar block (originally lines 117–156).
 4. Search the file for any keyboard event handling:
+
 ```powershell
 Select-String -Path src\components\layout\DashboardLayout.tsx -Pattern "keydown|Escape|onKeyDown"
 ```
+
 5. Observe the result: zero matches. The only dismiss handler present is `onClick={() => setMobileMenuOpen(false)}` on the backdrop `<div>`.
 
 **Expected behavior:** Pressing Escape while the mobile sidebar is open should close it, consistent with standard behavior for dismissible overlays/dialogs.
@@ -99,6 +91,7 @@ Select-String -Path src\components\layout\DashboardLayout.tsx -Pattern "keydown|
 Only one file was modified. Two changes were made:
 
 **1. Added `useEffect` to the React import:**
+
 ```tsx
 // Before
 import React, { useState } from "react";
@@ -108,6 +101,7 @@ import React, { useState, useEffect } from "react";
 ```
 
 **2. Added a keyboard event listener after the existing `useState` declarations:**
+
 ```tsx
 useEffect(() => {
   if (!mobileMenuOpen) return;
@@ -144,10 +138,32 @@ No other files were modified.
 
 ## Phase IV — Submit and Iterate
 
-*(To be updated after opening the pull request)*
+**PR Link:** https://github.com/nisshchayarathi/gitverse-nextjs/pull/2656
 
-- [ ] Pull request opened
-- [ ] CI checks green
+### PR Description (submitted to maintainer)
+
+> Closes #530
+>
+> The DashboardLayout mobile sidebar could only be dismissed by clicking
+> the backdrop overlay. This adds a keydown listener that closes the
+> sidebar on Escape, matching standard accessibility expectations for
+> dismissible overlays.
+>
+> **Changes**
+> - Added `useEffect` import
+> - Added a keydown listener scoped to `mobileMenuOpen`, calling the existing `setMobileMenuOpen(false)` on Escape
+> - Listener is cleaned up when the sidebar closes or the component unmounts
+>
+> **Testing**
+> - Verified via code review that no Escape/keydown handling existed prior to this change
+> - Confirmed only `DashboardLayout.tsx` was modified (`git status`)
+> - Ran `npx tsc --noEmit` — no new type errors introduced
+> - Ran `npm run lint` and `npm run build` — both passed
+
+### Status
+
+- [x] Pull request opened
+- [x] CI checks green
 - [ ] Maintainer feedback received
 - [ ] Revisions pushed (if needed)
 - [ ] PR merged
@@ -159,3 +175,4 @@ No other files were modified.
 - [Issue #530](https://github.com/nisshchayarathi/gitverse-nextjs/issues/530)
 - [My Fork](https://github.com/salabili212/gitverse-nextjs)
 - [Feature Branch](https://github.com/salabili212/gitverse-nextjs/tree/fix/sidebar-escape-key)
+- [Pull Request #2656](https://github.com/nisshchayarathi/gitverse-nextjs/pull/2656)
